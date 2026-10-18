@@ -15,6 +15,9 @@ cd munajjam_desktop
 flutter run -d macos
 ```
 
+Run `./scripts/build_macos.sh` from the repository root to create an offline
+`Munajjam-macos-arm64.dmg` with the downloaded models and an Applications shortcut.
+
 See [the macOS guide](docs/macos.md) for model storage, standalone packaging,
 diagnostics, and optional CoreML acceleration. Windows remains supported.
 

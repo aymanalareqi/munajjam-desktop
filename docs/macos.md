@@ -56,11 +56,34 @@ Automatic computer shutdown is available only on Windows.
 ./scripts/build_macos.sh
 ```
 
-This creates `installer_output/Munajjam-macos-arm64.zip`, containing `Munajjam.app`.
-It packages the Python backend and FFmpeg, including dependent native libraries,
-using PyInstaller. The installed app does not require Python or Homebrew.
-Models are separate to avoid downloading the large weights with every app update.
-On another Mac, copy the complete models directory to the location above, or run:
+This creates two packages containing `Munajjam.app`:
+
+- `installer_output/Munajjam-macos-arm64.dmg`: the app, Python backend, FFmpeg,
+  and all four downloaded models for offline use. Open it and drag the app to
+  Applications. The installed app takes approximately 5 GB.
+- `installer_output/Munajjam-macos-arm64.zip`: the smaller app/runtime archive,
+  with models kept separate.
+
+Neither package requires a separate Python or Homebrew installation. The DMG
+uses the completed model folders in the project root, or falls back to the
+Application Support models directory. `MUNAJJAM_MODELS_DIR` overrides this source.
+It requires the completion markers written by the downloader. Models included
+in the DMG are read from the app bundle; caches remain in Application Support.
+
+To create just the DMG from an already built and packaged app:
+
+```sh
+./scripts/package_macos_dmg.sh
+```
+
+For a smaller DMG with models kept separate:
+
+```sh
+MUNAJJAM_DMG_INCLUDE_MODELS=0 ./scripts/package_macos_dmg.sh
+```
+
+For the ZIP or smaller DMG, copy the complete model folders to the Application
+Support models directory, or run:
 
 ```sh
 /Applications/Munajjam.app/Contents/Resources/backend/munajjam_server --download-models
@@ -70,8 +93,9 @@ Restart the app after the download finishes so the server loads the models.
 
 The default signature is ad hoc for local testing. For public distribution, set
 `CODESIGN_IDENTITY` to your Developer ID Application identity when running the
-build script, then notarize the ZIP with Apple's `notarytool` and staple the
-resulting ticket to the app before making the final archive. This repository does
+build script. Then submit the DMG to Apple's `notarytool` and staple the ticket to
+the DMG. For ZIP distribution, staple the app's ticket before making the final
+archive. This repository does
 not contain signing credentials or perform notarization automatically.
 
 The runner deliberately uses direct distribution without App Sandbox because it

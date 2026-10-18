@@ -49,4 +49,5 @@ mkdir -p "$ROOT/installer_output"
 ditto -c -k --sequesterRsrc --keepParent "$APP" \
   "$ROOT/installer_output/Munajjam-macos-arm64.zip"
 echo "Created installer_output/Munajjam-macos-arm64.zip"
+"$ROOT/scripts/package_macos_dmg.sh" "$APP"
 echo "Public distribution additionally requires Developer ID signing and notarization."
