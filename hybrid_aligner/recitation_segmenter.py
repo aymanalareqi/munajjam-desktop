@@ -17,6 +17,7 @@ import gc
 import json
 import numpy as np
 from typing import List, Dict, Any, Tuple, Optional
+from .gpu_utils import get_segmenter_cpu_threads
 
 class QuranRecitationSegmenter:
     """
@@ -67,7 +68,7 @@ class QuranRecitationSegmenter:
                 sess_opts.enable_mem_pattern = True
                 sess_opts.enable_cpu_mem_arena = True
                 sess_opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
-                sess_opts.intra_op_num_threads = min(8, os.cpu_count() or 4)
+                sess_opts.intra_op_num_threads = get_segmenter_cpu_threads()
 
                 self.onnx_session = ort.InferenceSession(onnx_file, sess_opts, providers=providers)
                 self._cpu_session = None
@@ -179,7 +180,7 @@ class QuranRecitationSegmenter:
                 if self._cpu_session is None:
                     import onnxruntime as ort
                     sess_opts = ort.SessionOptions()
-                    sess_opts.intra_op_num_threads = min(8, os.cpu_count() or 4)
+                    sess_opts.intra_op_num_threads = get_segmenter_cpu_threads()
                     self._cpu_session = ort.InferenceSession(self.onnx_file, sess_opts, providers=["CPUExecutionProvider"])
                 ort_outs = self._cpu_session.run(None, {"input_features": feat_np})
 

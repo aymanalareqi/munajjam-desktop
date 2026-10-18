@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 import app_resources
-from hybrid_aligner.gpu_utils import get_ort_execution_providers
+from hybrid_aligner.gpu_utils import get_ort_execution_providers, get_segmenter_cpu_threads
 import munajjam_server
 
 
@@ -44,6 +44,25 @@ class ResourcesTest(unittest.TestCase):
 
 
 class ProvidersTest(unittest.TestCase):
+    def test_apple_segmenter_limits_threads_to_performance_core_count(self):
+        with patch('sys.platform', 'darwin'), \
+                patch('os.cpu_count', return_value=10), \
+                patch('subprocess.check_output', return_value=b'4\n'):
+            self.assertEqual(get_segmenter_cpu_threads(), 4)
+
+    def test_segmenter_keeps_default_if_performance_cores_are_unavailable(self):
+        with patch('sys.platform', 'darwin'), \
+                patch('os.cpu_count', return_value=10), \
+                patch('subprocess.check_output', side_effect=OSError):
+            self.assertEqual(get_segmenter_cpu_threads(), 8)
+
+    def test_windows_segmenter_thread_count_is_unchanged(self):
+        with patch('sys.platform', 'win32'), \
+                patch('os.cpu_count', return_value=12), \
+                patch('subprocess.check_output') as query:
+            self.assertEqual(get_segmenter_cpu_threads(), 8)
+            query.assert_not_called()
+
     def test_apple_cpu_default_even_when_coreml_is_installed(self):
         with patch('sys.platform', 'darwin'), \
                 patch('onnxruntime.get_available_providers', return_value=[

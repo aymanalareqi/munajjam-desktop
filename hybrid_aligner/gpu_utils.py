@@ -9,6 +9,23 @@ from typing import List, Any, Optional
 
 _CACHED_DML_DEVICE_ID: Optional[int] = None
 
+
+def get_segmenter_cpu_threads() -> int:
+    """Avoid over-threading the large segmenter on Apple Silicon's mixed cores."""
+    threads = min(8, os.cpu_count() or 4)
+    if sys.platform == "darwin":
+        try:
+            performance_cores = int(subprocess.check_output(
+                ["/usr/sbin/sysctl", "-n", "hw.perflevel0.logicalcpu"],
+                stderr=subprocess.DEVNULL, timeout=2,
+            ).strip())
+            if performance_cores > 0:
+                threads = min(threads, performance_cores)
+        except (OSError, ValueError, subprocess.SubprocessError):
+            pass
+    return max(1, threads)
+
+
 def get_best_dml_device_id() -> int:
     """
     يكتشف تلقائياً معرّف بطاقة الشاشة المنفصلة عالية الأداء (NVIDIA / AMD) لمسرع DirectML.

@@ -5,6 +5,10 @@ and local FastAPI backend share the existing Windows codebase. CPU inference is
 the default; a GPU is not required. Intel/Rosetta builds are not supported by this
 packaging workflow.
 
+On Apple Silicon, the segmentation model caps its CPU worker count at the
+reported performance-core count (up to eight). This reduces thread overhead
+on mixed-core Macs. The model and audio chunk sizes remain the same.
+
 ## Development
 
 Install Xcode (including its command line tools), Flutter with Dart 3.13 or
