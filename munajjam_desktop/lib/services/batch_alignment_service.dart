@@ -7,7 +7,7 @@ import '../models/batch_alignment_item.dart';
 import '../models/surah_model.dart';
 import 'aligner_api_service.dart';
 import 'quran_data_service.dart';
-import 'windows_power_service.dart';
+import 'power_service.dart';
 
 class BatchAlignmentService extends ChangeNotifier {
   static final BatchAlignmentService _instance = BatchAlignmentService._internal();
@@ -41,6 +41,7 @@ class BatchAlignmentService extends ChangeNotifier {
   String get method => _method;
   bool get skipExisting => _skipExisting;
   bool get saveInSubfolder => _saveInSubfolder;
+  bool get supportsShutdown => PowerService.supportsShutdown;
   bool get shutdownWhenDone => _shutdownWhenDone;
   Duration get totalElapsed => _totalElapsed;
 
@@ -99,7 +100,7 @@ class BatchAlignmentService extends ChangeNotifier {
   }
 
   void setShutdownWhenDone(bool val) {
-    _shutdownWhenDone = val;
+    _shutdownWhenDone = supportsShutdown && val;
     notifyListeners();
   }
 
@@ -197,8 +198,9 @@ class BatchAlignmentService extends ChangeNotifier {
     _isPaused = false;
     _batchStartTime = DateTime.now();
 
-    // منع ويندوز من النوم أثناء الليل
-    WindowsPowerService.preventSleep();
+    // Keep long-running batches awake on Windows and macOS.
+    await PowerService.preventSleep();
+    if (!_isRunning) return;
 
     _tickerTimer?.cancel();
     _tickerTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
@@ -229,7 +231,7 @@ class BatchAlignmentService extends ChangeNotifier {
     _isRunning = false;
     _isPaused = false;
     _tickerTimer?.cancel();
-    WindowsPowerService.allowSleep();
+    unawaited(PowerService.allowSleep());
     notifyListeners();
   }
 
@@ -358,7 +360,7 @@ class BatchAlignmentService extends ChangeNotifier {
     _isRunning = false;
     _isPaused = false;
     _tickerTimer?.cancel();
-    WindowsPowerService.allowSleep();
+    await PowerService.allowSleep();
 
     // حفظ تقرير الفهرس الشامل khatmah_manifest.json
     if (_currentFolderPath != null && Directory(_currentFolderPath!).existsSync()) {
@@ -403,7 +405,7 @@ class BatchAlignmentService extends ChangeNotifier {
 
     // إيقاف تشغيل الكمبيوتر إذا تم تحديد هذا الخيار
     if (_shutdownWhenDone) {
-      await WindowsPowerService.shutdownComputer(delaySeconds: 60);
+      await PowerService.shutdownComputer(delaySeconds: 60);
     }
   }
 }

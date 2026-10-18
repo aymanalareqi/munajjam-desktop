@@ -4,6 +4,20 @@
 
 ---
 
+## macOS (Apple Silicon)
+
+Native Apple Silicon support targets macOS 14 or later. From the repository root:
+
+```sh
+brew install python@3.11 ffmpeg
+./scripts/setup_macos.sh
+cd munajjam_desktop
+flutter run -d macos
+```
+
+See [the macOS guide](docs/macos.md) for model storage, standalone packaging,
+diagnostics, and optional CoreML acceleration. Windows remains supported.
+
 ## 🌟 محركات التزمين المتوفرة
 
 | المحرك | المعرف (`id`) | النوع | التقنية والميزات |

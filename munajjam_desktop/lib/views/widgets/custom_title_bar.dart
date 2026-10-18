@@ -1,6 +1,8 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
+
 import '../../core/server_manager.dart';
 import '../../core/theme/app_theme.dart';
 import 'exit_loading_dialog.dart';
@@ -91,7 +93,9 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
           },
         ),
         _WindowControlButton(
-          icon: _isMaximized ? Icons.filter_none_rounded : Icons.crop_square_rounded,
+          icon: _isMaximized
+              ? Icons.filter_none_rounded
+              : Icons.crop_square_rounded,
           iconSize: _isMaximized ? 12 : 14,
           tooltip: _isMaximized ? 'استعادة' : 'تكبير',
           onPressed: _handleMaximizeRestore,
@@ -127,17 +131,15 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
             ],
           ),
           alignment: Alignment.center,
-          child: const Icon(
-            Icons.auto_awesome,
-            color: Colors.white,
-            size: 13,
-          ),
+          child: const Icon(Icons.auto_awesome, color: Colors.white, size: 13),
         ),
         const SizedBox(width: 8),
 
         // Title
         Text(
-          isRTL ? 'منجم - محرر التزمين القرآني الذكي' : 'Munajjam - Neural Quran Aligner',
+          isRTL
+              ? 'منجم - محرر التزمين القرآني الذكي'
+              : 'Munajjam - Neural Quran Aligner',
           style: const TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.bold,
@@ -168,9 +170,14 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
         const SizedBox(width: 8),
 
         // Hardware Acceleration Indicator Pill
-        ValueListenableBuilder<bool>(
-          valueListenable: serverManager.isOnlineNotifier,
-          builder: (context, isOnline, _) {
+        ListenableBuilder(
+          listenable: Listenable.merge([
+            serverManager.isOnlineNotifier,
+            serverManager.hardwareStatusNotifier,
+          ]),
+          builder: (context, _) {
+            final isOnline = serverManager.isOnline;
+            final hardware = serverManager.hardwareStatusNotifier.value;
             return Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
@@ -190,15 +197,21 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
                   Icon(
                     Icons.bolt_rounded,
                     size: 11,
-                    color: isOnline ? AppColors.primaryEmerald : AppColors.warningAmber,
+                    color: isOnline
+                        ? AppColors.primaryEmerald
+                        : AppColors.warningAmber,
                   ),
                   const SizedBox(width: 3),
                   Text(
-                    isOnline ? 'RTX DirectML' : 'جاري التشغيل...',
+                    isOnline
+                        ? hardware?.providerName ?? 'CPU'
+                        : (isRTL ? 'غير متصل' : 'Offline'),
                     style: TextStyle(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
-                      color: isOnline ? AppColors.primaryEmerald : AppColors.warningAmber,
+                      color: isOnline
+                          ? AppColors.primaryEmerald
+                          : AppColors.warningAmber,
                     ),
                   ),
                 ],
@@ -236,7 +249,7 @@ class _CustomTitleBarState extends State<CustomTitleBar> with WindowListener {
           ),
 
           // Window Controls
-          windowControls,
+          if (!Platform.isMacOS) windowControls,
         ],
       ),
     );
@@ -281,14 +294,18 @@ class _WindowControlButtonState extends State<_WindowControlButton> {
             height: 38,
             decoration: BoxDecoration(
               color: _isHovered
-                  ? (widget.isClose ? const Color(0xFFE11D48) : Colors.white.withValues(alpha: 0.1))
+                  ? (widget.isClose
+                        ? const Color(0xFFE11D48)
+                        : Colors.white.withValues(alpha: 0.1))
                   : Colors.transparent,
             ),
             alignment: Alignment.center,
             child: Icon(
               widget.icon,
               size: widget.iconSize,
-              color: _isHovered && widget.isClose ? Colors.white : AppColors.textSecondary,
+              color: _isHovered && widget.isClose
+                  ? Colors.white
+                  : AppColors.textSecondary,
             ),
           ),
         ),

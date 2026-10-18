@@ -61,6 +61,8 @@ english.WelcomeLabel1=Welcome to Munajjam Update Patch
 english.WelcomeLabel2=This patch will update your existing Munajjam installation with the latest waveform timing fixes and enhancements without re-downloading AI models.
 
 [Files]
+Source: "..\app_resources.py"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\munajjam_server.py"; DestDir: "{app}"; Flags: ignoreversion
 ; 1. ملفات واجهة البرنامج المحدثة (Flutter Release)
 Source: "build\windows\x64\runner\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 

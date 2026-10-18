@@ -1,14 +1,21 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
+
 import '../../core/server_manager.dart';
 import '../../core/theme/app_theme.dart';
+import '../../services/power_service.dart';
 
 class ExitLoadingDialog extends StatefulWidget {
   final String localeCode;
   const ExitLoadingDialog({super.key, this.localeCode = 'ar'});
 
-  static Future<void> show(BuildContext context, {String localeCode = 'ar'}) async {
+  static Future<void> show(
+    BuildContext context, {
+    String localeCode = 'ar',
+  }) async {
     return showDialog(
       context: context,
       barrierDismissible: false,
@@ -34,6 +41,11 @@ class _ExitLoadingDialogState extends State<ExitLoadingDialog> {
     } catch (_) {}
 
     try {
+      await PowerService.allowSleep();
+      if (Platform.isMacOS) {
+        await const MethodChannel('munajjam/lifecycle')
+            .invokeMethod<void>('approveQuit');
+      }
       if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
         await windowManager.destroy();
       } else {
@@ -93,7 +105,9 @@ class _ExitLoadingDialogState extends State<ExitLoadingDialog> {
                     height: 28,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.8,
-                      valueColor: AlwaysStoppedAnimation<Color>(AppColors.primaryEmerald),
+                      valueColor: AlwaysStoppedAnimation<Color>(
+                        AppColors.primaryEmerald,
+                      ),
                     ),
                   ),
                 ),
@@ -102,7 +116,9 @@ class _ExitLoadingDialogState extends State<ExitLoadingDialog> {
 
               // Title
               Text(
-                isAr ? 'جاري تفريغ الذاكرة وإغلاق الخادم' : 'Freeing Memory & Shutting Down',
+                isAr
+                    ? 'جاري تفريغ الذاكرة وإغلاق الخادم'
+                    : 'Freeing Memory & Shutting Down',
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 16,

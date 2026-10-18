@@ -27,7 +27,7 @@ class AlignmentJobStatus {
 class AlignerApiService {
   final String baseUrl;
 
-  AlignerApiService({this.baseUrl = 'http://localhost:8000'});
+  AlignerApiService({this.baseUrl = 'http://127.0.0.1:8000'});
 
   Future<String> startAlignmentJob({
     required int surahId,

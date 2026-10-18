@@ -53,7 +53,9 @@ class ConfigModal extends StatelessWidget {
                   children: [
                     _buildStatusTile(
                       title: 'خادم التزمين المحلي',
-                      subtitle: serverManager.serverUrl,
+                      subtitle: serverManager.isOnline
+                          ? serverManager.serverUrl
+                          : serverManager.statusMessageNotifier.value,
                       status: serverManager.isOnline ? 'نشط ومتصل' : 'غير متصل',
                       isOk: serverManager.isOnline,
                       icon: Icons.dns_rounded,
@@ -62,32 +64,32 @@ class ConfigModal extends StatelessWidget {
                     _buildStatusTile(
                       title: 'مسرع العتاد والذكاء الاصطناعي',
                       subtitle: hw?.providerName ?? 'جاري الفحص...',
-                      status: (hw?.hasGpu ?? false) ? 'GPU Acceleration' : 'CPU Mode',
+                      status: (hw?.hasGpu ?? false) ? 'Hardware Acceleration' : 'CPU Mode',
                       isOk: hw != null,
                       icon: Icons.memory_rounded,
                     ),
                     const SizedBox(height: 10),
                     _buildStatusTile(
                       title: 'نموذج تقطيع النَّفَس recitation-segmenter-v2 (المرحلة 1)',
-                      subtitle: 'Wav2Vec2-BERT ONNX DirectML (تقطيع الأنفاس على GPU)',
-                      status: (hw?.segmenterLoaded ?? true) ? 'محمل وجاهز' : 'غير موجود',
-                      isOk: hw?.segmenterLoaded ?? true,
+                      subtitle: 'Wav2Vec2-BERT ONNX (تقطيع الأنفاس)',
+                      status: (hw?.segmenterLoaded ?? false) ? 'محمل وجاهز' : 'غير محمل',
+                      isOk: hw?.segmenterLoaded ?? false,
                       icon: Icons.air_rounded,
                     ),
                     const SizedBox(height: 10),
                     _buildStatusTile(
                       title: 'نموذج Zipformer v3 (المرحلة 2)',
                       subtitle: 'zipformer_p_arabic_v3.onnx (كشف البسملة والاستعاذة)',
-                      status: (hw?.zipformerLoaded ?? true) ? 'محمل وجاهز' : 'غير موجود',
-                      isOk: hw?.zipformerLoaded ?? true,
+                      status: (hw?.zipformerLoaded ?? false) ? 'محمل وجاهز' : 'غير محمل',
+                      isOk: hw?.zipformerLoaded ?? false,
                       icon: Icons.multitrack_audio_rounded,
                     ),
                     const SizedBox(height: 10),
                     _buildStatusTile(
                       title: 'نموذج Wav2Vec2 XLSR-53 (المرحلة 3)',
-                      subtitle: 'wav2vec2-large-xlsr-53-arabic (المحاذاة القسرية على GPU)',
-                      status: (hw?.wav2vec2Loaded ?? true) ? 'محمل وجاهز' : 'غير موجود',
-                      isOk: hw?.wav2vec2Loaded ?? true,
+                      subtitle: 'wav2vec2-large-xlsr-53-arabic (المحاذاة القسرية)',
+                      status: (hw?.wav2vec2Loaded ?? false) ? 'محمل وجاهز' : 'غير محمل',
+                      isOk: hw?.wav2vec2Loaded ?? false,
                       icon: Icons.graphic_eq_rounded,
                     ),
                   ],

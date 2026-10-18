@@ -4,7 +4,12 @@ import 'dart:ffi';
 import 'dart:io';
 
 /// خدمة للتحكم في طاقة النظام ومنع الدخول في وضع السكون أثناء تزمين الختمات الطويلة
-class WindowsPowerService {
+class PowerService {
+  static Process? _caffeinate;
+  static int _sleepGeneration = 0;
+
+  static bool get supportsShutdown => Platform.isWindows;
+
   static const int ES_SYSTEM_REQUIRED = 0x00000001;
   static const int ES_CONTINUOUS = 0x80000000;
   static const int ES_AWAYMODE_REQUIRED = 0x00000040;
@@ -19,24 +24,46 @@ class WindowsPowerService {
     try {
       _kernel32 = DynamicLibrary.open('kernel32.dll');
       _setThreadExecutionState = _kernel32!
-          .lookupFunction<Uint32 Function(Uint32), int Function(int)>('SetThreadExecutionState');
+          .lookupFunction<Uint32 Function(Uint32), int Function(int)>(
+            'SetThreadExecutionState',
+          );
     } catch (e) {
       // Ignored if not available
     }
   }
 
   /// منع الكمبيوتر من الدخول في وضع السكون أثناء عمل الطابور
-  static void preventSleep() {
+  static Future<void> preventSleep() async {
+    if (Platform.isMacOS) {
+      if (_caffeinate != null) return;
+      final generation = ++_sleepGeneration;
+      final process = await Process.start('/usr/bin/caffeinate', [
+        '-i',
+        '-w',
+        '$pid',
+      ]);
+      if (generation != _sleepGeneration) {
+        process.kill();
+      } else {
+        _caffeinate = process;
+      }
+      return;
+    }
     if (!Platform.isWindows) return;
     _init();
     try {
-      _setThreadExecutionState?.call(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED);
+      _setThreadExecutionState?.call(
+        ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_AWAYMODE_REQUIRED,
+      );
       _isPreventingSleep = true;
     } catch (_) {}
   }
 
   /// إعادة تمكين وضع السكون الطبيعي للنظام
-  static void allowSleep() {
+  static Future<void> allowSleep() async {
+    ++_sleepGeneration;
+    _caffeinate?.kill();
+    _caffeinate = null;
     if (!Platform.isWindows || !_isPreventingSleep) return;
     _init();
     try {

@@ -6,13 +6,13 @@ Neural Voice Activity & Quranic Breath Detector
 import os
 import numpy as np
 import onnxruntime as ort
+from app_resources import models_dir
 from typing import List, Dict, Any, Tuple, Optional
 
 class SileroVADDetector:
     def __init__(self, model_path: Optional[str] = None):
         if model_path is None:
-            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            model_path = os.path.join(base_dir, "model_vad", "silero_vad.onnx")
+            model_path = str(models_dir() / "model_vad" / "silero_vad.onnx")
         
         if not os.path.exists(model_path):
             raise FileNotFoundError(f"Silero VAD model not found at {model_path}")

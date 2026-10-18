@@ -5,6 +5,9 @@ FastAPI Server for Munajjam Quranic Audio Alignment Engine
 
 import os
 import sys
+from app_resources import configure_cache, resource_dir, models_dir, find_ffmpeg
+
+configure_cache()
 
 # Ensure UTF-8 output on Windows consoles
 if hasattr(sys.stdout, 'reconfigure'):
@@ -36,8 +39,8 @@ from neural_aligner import ZipformerNeuralAligner
 
 # Base Paths
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(BASE_DIR, "model_zipformer")
-DATA_DIR = os.path.join(BASE_DIR, "data")
+MODEL_DIR = str(models_dir() / "model_zipformer")
+DATA_DIR = str(resource_dir() / "data")
 
 aligner_instance: Optional[ZipformerNeuralAligner] = None
 hybrid_aligner_instance: Optional[Any] = None
@@ -62,9 +65,9 @@ def get_hybrid_aligner():
     if hybrid_aligner_instance is None:
         try:
             from hybrid_aligner import HybridQuranAligner
-            wav2vec2_dir = os.path.join(BASE_DIR, "model_wav2vec2")
+            wav2vec2_dir = str(models_dir() / "model_wav2vec2")
             target_model = wav2vec2_dir if (os.path.exists(wav2vec2_dir) and (os.path.exists(os.path.join(wav2vec2_dir, "model.onnx")) or os.path.exists(os.path.join(wav2vec2_dir, "config.json")))) else "jonatasgrosman/wav2vec2-large-xlsr-53-arabic"
-            segmenter_dir = os.path.join(BASE_DIR, "model_segmenter")
+            segmenter_dir = str(models_dir() / "model_segmenter")
             hybrid_aligner_instance = HybridQuranAligner(
                 zipformer_dir=MODEL_DIR,
                 wav2vec2_dir_or_name=target_model,
@@ -160,18 +163,30 @@ def read_root():
 def health_check():
     loaded = aligner_instance is not None and aligner_instance.recognizer is not None
     
-    # Provider & GPU detection
+    # Report providers registered on loaded sessions, not merely installed EPs.
     providers = []
-    try:
-        import onnxruntime as ort
-        providers = ort.get_available_providers()
-    except Exception:
-        pass
-
-    has_gpu = "CUDAExecutionProvider" in providers or "DmlExecutionProvider" in providers
-    provider_name = "NVIDIA CUDA Acceleration" if "CUDAExecutionProvider" in providers else (
-        "DirectML Hardware Acceleration (GPU)" if "DmlExecutionProvider" in providers else "CPU Execution Provider"
-    )
+    models = {"zipformer": loaded, "segmenter": False, "wav2vec2": False}
+    if hybrid_aligner_instance is not None:
+        for name in ("segmenter", "wav2vec2"):
+            model = getattr(hybrid_aligner_instance, name, None)
+            models[name] = model is not None
+            session = getattr(model, "onnx_session", None)
+            if session is not None:
+                providers.extend(session.get_providers())
+            elif model is not None:
+                device = str(getattr(model, "torch_device", None) or getattr(model, "device", "cpu"))
+                if device == "cuda":
+                    providers.append("CUDAExecutionProvider")
+    if loaded:
+        providers.append("CPUExecutionProvider")  # Sherpa Zipformer uses CPU.
+    providers = list(dict.fromkeys(providers))
+    accelerated = next((p for p in providers if p != "CPUExecutionProvider"), None)
+    has_gpu = accelerated is not None
+    provider_name = {
+        "CUDAExecutionProvider": "NVIDIA CUDA",
+        "DmlExecutionProvider": "DirectML",
+        "CoreMLExecutionProvider": "Apple CoreML (with CPU fallback)",
+    }.get(accelerated, "CPU Execution Provider")
 
     return {
         "status": "online",
@@ -181,6 +196,7 @@ def health_check():
         "has_gpu": has_gpu,
         "provider_name": provider_name,
         "providers": providers,
+        "models": models,
         "error": model_error
     }
 
@@ -189,8 +205,7 @@ def convert_audio_to_wav(input_path: str, output_path: str) -> bool:
     # 1. التجربة الأولى: FFmpeg الفائق السرعة (أقل من ثانية وبدون إظهار أي نافذة كونسول)
     try:
         import subprocess
-        local_ffmpeg = os.path.join(BASE_DIR, "ffmpeg.exe")
-        ffmpeg_bin = local_ffmpeg if os.path.exists(local_ffmpeg) else "ffmpeg"
+        ffmpeg_bin = find_ffmpeg()
         kwargs = {}
         if sys.platform == "win32":
             kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
@@ -252,7 +267,7 @@ def _run_alignment_job(
             JOBS[job_id]["current_seconds"] = round(current_sec, 2)
             JOBS[job_id]["total_seconds"] = round(total_sec, 2)
 
-        update_progress(5.0, "جاري تهيئة نموذج الذكاء الاصطناعي والمسرع الرسومي DirectML...", stage="preparing")
+        update_progress(5.0, "جاري تهيئة نموذج الذكاء الاصطناعي...", stage="preparing")
 
         with ALIGN_LOCK:
             if method == "zipformer":
@@ -535,7 +550,26 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Host IP")
     parser.add_argument("--port", type=int, default=8000, help="Port")
     parser.add_argument("--parent-pid", type=int, default=None, help="Parent process PID to monitor")
+    parser.add_argument("--download-models", action="store_true", help="Download complete ONNX models, then exit")
+    parser.add_argument("--check-runtime", action="store_true", help="Verify native libraries and FFmpeg without loading models")
     args = parser.parse_args()
+
+    if args.check_runtime:
+        import platform
+        import sherpa_onnx
+        import onnxruntime as ort
+        import torch
+        from transformers import Wav2Vec2ForCTC, Wav2Vec2Processor, SeamlessM4TFeatureExtractor
+        from transformers.models.wav2vec2_bert.modeling_wav2vec2_bert import Wav2Vec2BertForAudioFrameClassification
+        subprocess.run([find_ffmpeg(), "-version"], check=True, stdout=subprocess.DEVNULL)
+        print(json.dumps({"architecture": platform.machine(),
+                          "providers": ort.get_available_providers(),
+                          "ffmpeg": find_ffmpeg(), "runtime": "ok"}))
+        return 0
+
+    if args.download_models:
+        from download_models import download_all_models
+        return 0 if download_all_models() else 1
 
     # If launched by Flutter desktop, monitor parent PID to auto-exit if Flutter closes
     if args.parent_pid:
@@ -559,4 +593,4 @@ def main():
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

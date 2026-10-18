@@ -38,6 +38,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 venv/
+.venv/
 env/
 .env
 
@@ -58,3 +59,8 @@ Munajjam-Website/
 .idea/
 .DS_Store
 Thumbs.db
+
+# macOS backend packaging
+dist/
+build/
+ffmpeg

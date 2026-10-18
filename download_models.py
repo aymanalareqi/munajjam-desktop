@@ -7,6 +7,9 @@ Munajjam Master ONNX Models Downloader
 
 import os
 import sys
+from app_resources import configure_cache, models_dir
+
+configure_cache()
 
 # Ensure UTF-8 output on Windows consoles
 if hasattr(sys.stdout, 'reconfigure'):
@@ -14,7 +17,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 if hasattr(sys.stderr, 'reconfigure'):
     sys.stderr.reconfigure(encoding='utf-8', errors='replace')
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = str(models_dir())
 REPO_ID = "Alimalas/munajjam-onnx-models"
 
 MODELS = [
@@ -65,11 +68,14 @@ def download_all_models(force=False):
     for idx, item in enumerate(MODELS, start=1):
         target_folder = os.path.join(BASE_DIR, item["folder"])
         key_file_path = os.path.join(target_folder, item["key_file"])
+        completion_file = os.path.join(target_folder, ".munajjam_complete")
 
         print(f"[{idx}/{total_models}] {item['name']}")
         print(f"📁 المجلد المحلي: {target_folder}")
 
-        if os.path.exists(key_file_path) and not force:
+        # ONNX graphs reference hundreds of external tensor files. The graph
+        # alone does not prove a previous download finished successfully.
+        if os.path.exists(key_file_path) and os.path.exists(completion_file) and not force:
             print("   ✅ النموذج موجود مسبقاً، تم التحقق والتخطي.")
             print()
             success_count += 1
@@ -81,9 +87,10 @@ def download_all_models(force=False):
                 repo_id=REPO_ID,
                 allow_patterns=[item["pattern"]],
                 local_dir=BASE_DIR,
-                local_dir_use_symlinks=False,
             )
             if os.path.exists(key_file_path):
+                with open(completion_file, "w", encoding="utf-8") as marker:
+                    marker.write(REPO_ID + "\n")
                 size_mb = os.path.getsize(key_file_path) / (1024 * 1024)
                 print(f"   ✅ اكتمل التحميل بنجاح! ({item['key_file']} - {size_mb:.2f} MB)")
                 success_count += 1
@@ -106,4 +113,4 @@ def download_all_models(force=False):
 
 if __name__ == "__main__":
     force_download = "--force" in sys.argv
-    download_all_models(force=force_download)
+    sys.exit(0 if download_all_models(force=force_download) else 1)

@@ -414,7 +414,7 @@ class _BatchAlignmentModalState extends State<BatchAlignmentModal> {
               const SizedBox(width: 8),
 
               // Checkbox: Auto Shutdown
-              _buildOptionChip(
+              if (_batchService.supportsShutdown) _buildOptionChip(
                 label: 'إطفاء الحاسوب بعد الانتهاء',
                 icon: Icons.power_settings_new_rounded,
                 value: _batchService.shutdownWhenDone,

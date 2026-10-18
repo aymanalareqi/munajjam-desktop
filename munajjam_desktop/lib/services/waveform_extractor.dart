@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
+
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as p;
 
@@ -19,12 +20,19 @@ class WaveformExtractor {
     if (_cachedFfmpegPath != null) return _cachedFfmpegPath;
 
     final candidates = <String>[];
+    if (Platform.environment['MUNAJJAM_FFMPEG'] case final String ffmpeg) {
+      candidates.add(ffmpeg);
+    }
 
     try {
       // 1. المجلد الذي يوجد به ملف تشغيل التطبيق (في النسخة المجمعة الموزعة)
       final exeDir = File(Platform.resolvedExecutable).parent.path;
       candidates.add(p.join(exeDir, 'ffmpeg.exe'));
       candidates.add(p.join(exeDir, 'ffmpeg'));
+      candidates.add(p.join(exeDir, 'backend', 'ffmpeg'));
+      candidates.add(p.join(exeDir, 'backend', '_internal', 'ffmpeg'));
+      candidates.add(p.join(exeDir, '..', 'Resources', 'backend', 'ffmpeg'));
+      candidates.add(p.join(exeDir, '..', 'Resources', 'backend', '_internal', 'ffmpeg'));
 
       // 2. المجلدات الأبوية (أثناء بيئة التطوير في Flutter)
       var parentDir = Directory(exeDir);
@@ -38,6 +46,14 @@ class WaveformExtractor {
       final cwd = Directory.current.path;
       candidates.add(p.join(cwd, 'ffmpeg.exe'));
       candidates.add(p.join(cwd, '..', 'ffmpeg.exe'));
+      candidates.add(p.join(cwd, 'ffmpeg'));
+      candidates.add(p.join(cwd, '..', 'ffmpeg'));
+      if (Platform.isMacOS) {
+        candidates.addAll([
+          '/opt/homebrew/bin/ffmpeg',
+          '/usr/local/bin/ffmpeg',
+        ]);
+      }
     } catch (_) {}
 
     for (final path in candidates) {
@@ -60,7 +76,10 @@ class WaveformExtractor {
   }
 
   /// استخراج مصفوفة التموجات الصوتية الحقيقية (بمعدل 100 نقطة لكل ثانية = دقة 10ms)
-  Future<List<double>?> extractPeaks(String source, {bool isLocal = true}) async {
+  Future<List<double>?> extractPeaks(
+    String source, {
+    bool isLocal = true,
+  }) async {
     try {
       if (isLocal && !File(source).existsSync()) {
         return null;
@@ -87,15 +106,23 @@ class WaveformExtractor {
   }
 
   /// استخراج حقيقي فائق السرعة عبر تدفق PCM أحادي القناة بتردد 1000Hz
-  Future<List<double>?> _extractWithFfmpeg(String source, String ffmpegPath) async {
+  Future<List<double>?> _extractWithFfmpeg(
+    String source,
+    String ffmpegPath,
+  ) async {
     try {
       // نطلب من FFmpeg تحويل أي ملف صوتي إلى تدفق PCM 16-bit أحادي بتردد 1000Hz عبر stdout
       final process = await Process.start(ffmpegPath, [
-        '-v', 'error',
-        '-i', source,
-        '-ac', '1',
-        '-ar', '1000',
-        '-f', 's16le',
+        '-v',
+        'error',
+        '-i',
+        source,
+        '-ac',
+        '1',
+        '-ar',
+        '1000',
+        '-f',
+        's16le',
         '-',
       ]);
 
@@ -217,7 +244,12 @@ class WaveformExtractor {
         offset += 8 + chunkSize + (chunkSize % 2);
       }
 
-      if (dataOffset < 0 || dataLength <= 0 || sampleRate <= 0 || numChannels <= 0) return null;
+      if (dataOffset < 0 ||
+          dataLength <= 0 ||
+          sampleRate <= 0 ||
+          numChannels <= 0) {
+        return null;
+      }
 
       final bytesPerSample = bitsPerSample ~/ 8;
       final bytesPerFrame = bytesPerSample * numChannels;
@@ -254,7 +286,9 @@ class WaveformExtractor {
               if (audioFormat == 3) {
                 s = bd.getFloat32(sampleOffset, Endian.little).abs();
               } else {
-                s = bd.getInt32(sampleOffset, Endian.little).abs() / 2147483648.0;
+                s =
+                    bd.getInt32(sampleOffset, Endian.little).abs() /
+                    2147483648.0;
               }
             } else if (bitsPerSample == 8) {
               s = (bytes[sampleOffset] - 128).abs() / 128.0;
@@ -268,7 +302,9 @@ class WaveformExtractor {
 
       if (globalMax < 0.001) return List.filled(rawPeaks.length, 0.0);
       final scale = 0.94 / globalMax;
-      return rawPeaks.map((v) => pow((v * scale).clamp(0.0, 1.0), 0.85).toDouble()).toList();
+      return rawPeaks
+          .map((v) => pow((v * scale).clamp(0.0, 1.0), 0.85).toDouble())
+          .toList();
     } catch (e) {
       return null;
     }

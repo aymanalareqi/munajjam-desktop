@@ -63,6 +63,15 @@ def get_ort_execution_providers() -> List[Any]:
     available = ort.get_available_providers()
     providers = []
 
+    # CPU is the validated baseline on Apple Silicon. CoreML remains opt-in
+    # until the released model graphs have been checked for correctness/speed.
+    if sys.platform == "darwin":
+        if (os.environ.get("MUNAJJAM_ENABLE_COREML") == "1"
+                and "CoreMLExecutionProvider" in available):
+            providers.append("CoreMLExecutionProvider")
+        providers.append("CPUExecutionProvider")
+        return providers
+
     # تحديد معرّف الكرت لـ CUDA
     cuda_device_id = 0
     for env_var in ["CUDA_DEVICE_ID", "GPU_DEVICE_ID"]:

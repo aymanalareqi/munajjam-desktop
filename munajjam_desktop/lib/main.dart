@@ -1,5 +1,7 @@
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -21,14 +23,16 @@ void main() async {
   if (Platform.isWindows || Platform.isLinux || Platform.isMacOS) {
     try {
       await windowManager.ensureInitialized();
-      const windowOptions = WindowOptions(
+      final windowOptions = WindowOptions(
         size: Size(1240, 720),
         minimumSize: Size(960, 580),
         center: true,
         backgroundColor: Colors.transparent,
         skipTaskbar: false,
         title: 'منجم - محرر التزمين القرآني الذكي',
-        titleBarStyle: TitleBarStyle.hidden,
+        titleBarStyle: Platform.isMacOS
+            ? TitleBarStyle.normal
+            : TitleBarStyle.hidden,
       );
       windowManager.waitUntilReadyToShow(windowOptions, () async {
         await windowManager.center();
@@ -64,6 +68,7 @@ class MunajjamApp extends StatefulWidget {
 
 class _MunajjamAppState extends State<MunajjamApp> with WindowListener {
   String _localeCode = 'ar';
+  bool _isClosing = false;
 
   @override
   void initState() {
@@ -75,11 +80,17 @@ class _MunajjamAppState extends State<MunajjamApp> with WindowListener {
 
   @override
   void onWindowClose() async {
+    if (_isClosing) return;
+    _isClosing = true;
     final ctx = appNavigatorKey.currentContext;
     if (ctx != null) {
       ExitLoadingDialog.show(ctx, localeCode: _localeCode);
     } else {
       await ServerManager().stopServer();
+      if (Platform.isMacOS) {
+        await const MethodChannel('munajjam/lifecycle')
+            .invokeMethod<void>('approveQuit');
+      }
       await windowManager.destroy();
     }
   }
@@ -103,19 +114,14 @@ class _MunajjamAppState extends State<MunajjamApp> with WindowListener {
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => AlignmentProvider()),
-      ],
+      providers: [ChangeNotifierProvider(create: (_) => AlignmentProvider())],
       child: MaterialApp(
         navigatorKey: appNavigatorKey,
         title: 'منجم - التزمين القرآني الذكي',
         debugShowCheckedModeBanner: false,
         theme: AppTheme.darkTheme,
         locale: Locale(_localeCode),
-        supportedLocales: const [
-          Locale('ar', 'SA'),
-          Locale('en', 'US'),
-        ],
+        supportedLocales: const [Locale('ar', 'SA'), Locale('en', 'US')],
         localizationsDelegates: const [
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
