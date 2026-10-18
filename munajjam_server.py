@@ -5,7 +5,7 @@ FastAPI Server for Munajjam Quranic Audio Alignment Engine
 
 import os
 import sys
-from app_resources import configure_cache, resource_dir, models_dir, find_ffmpeg
+from app_resources import application_support_dir, configure_cache, resource_dir, models_dir, find_ffmpeg
 
 configure_cache()
 
@@ -48,6 +48,22 @@ model_error: Optional[str] = None
 JOBS: Dict[str, Dict[str, Any]] = {}
 
 ALIGN_LOCK = threading.Lock()
+
+
+def configure_server_log(log_path=None):
+    """Keep app-managed output independent of Flutter's hot-restart pipes."""
+    if log_path is None:
+        root = application_support_dir() if sys.platform == "darwin" else os.path.join(tempfile.gettempdir(), "Munajjam")
+        log_path = os.path.join(root, "logs", "server.log")
+    log_path = os.path.abspath(log_path)
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    output = open(log_path, "a", encoding="utf-8", buffering=1)
+    # Redirect native library diagnostics as well as Python print/traceback.
+    os.dup2(output.fileno(), 1)
+    os.dup2(output.fileno(), 2)
+    sys.stdout = output
+    sys.stderr = output
+
 
 def get_aligner() -> ZipformerNeuralAligner:
     global aligner_instance, model_error
@@ -266,6 +282,7 @@ def _run_alignment_job(
             JOBS[job_id]["stage"] = stage
             JOBS[job_id]["current_seconds"] = round(current_sec, 2)
             JOBS[job_id]["total_seconds"] = round(total_sec, 2)
+            print(f"[Job {job_id}] {percent:.1f}% {message}", flush=True)
 
         update_progress(5.0, "جاري تهيئة نموذج الذكاء الاصطناعي...", stage="preparing")
 
@@ -296,20 +313,26 @@ def _run_alignment_job(
                     repetition_attach=repetition_attach
                 )
 
-        JOBS[job_id]["status"] = "completed"
+        JOBS[job_id]["result"] = res
         JOBS[job_id]["progress"] = 100.0
         JOBS[job_id]["stage"] = "finished"
         JOBS[job_id]["message"] = "اكتمل التزمين بنجاح فائق الدقة"
-        JOBS[job_id]["result"] = res
+        JOBS[job_id]["status"] = "completed"
+        print(f"[Job {job_id}] Completed", flush=True)
 
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        JOBS[job_id]["status"] = "failed"
         JOBS[job_id]["progress"] = 0.0
         JOBS[job_id]["stage"] = "error"
         JOBS[job_id]["error"] = str(e)
         JOBS[job_id]["message"] = f"خطأ في المعالجة: {str(e)}"
+        JOBS[job_id]["status"] = "failed"
+        # Publish the failure before logging: a detached/closed output pipe must
+        # never leave an already-finished job marked as processing.
+        import traceback
+        try:
+            traceback.print_exc()
+        except OSError:
+            pass
     finally:
         try:
             if os.path.exists(temp_dir):
@@ -550,9 +573,13 @@ def main():
     parser.add_argument("--host", default="127.0.0.1", help="Host IP")
     parser.add_argument("--port", type=int, default=8000, help="Port")
     parser.add_argument("--parent-pid", type=int, default=None, help="Parent process PID to monitor")
+    parser.add_argument("--log-file", default=None, help="Write server output directly to this file")
     parser.add_argument("--download-models", action="store_true", help="Download complete ONNX models, then exit")
     parser.add_argument("--check-runtime", action="store_true", help="Verify native libraries and FFmpeg without loading models")
     args = parser.parse_args()
+
+    if args.log_file or args.parent_pid:
+        configure_server_log(args.log_file)
 
     if args.check_runtime:
         import platform
@@ -580,8 +607,10 @@ def main():
                 time.sleep(2)
                 try:
                     if not psutil.pid_exists(parent_pid):
-                        print(f"[*] Parent process {parent_pid} terminated. Exiting server...")
-                        os._exit(0)
+                        try:
+                            print(f"[*] Parent process {parent_pid} terminated. Exiting server...")
+                        finally:
+                            os._exit(0)
                 except Exception:
                     pass
         try:

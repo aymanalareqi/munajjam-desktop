@@ -25,6 +25,22 @@ from neural_aligner import ZipformerNeuralAligner
 from .wav2vec2_aligner import Wav2Vec2ForcedAligner
 from .recitation_segmenter import QuranRecitationSegmenter
 
+
+def _segmentation_progress(callback, start_percent, end_percent):
+    if callback is None:
+        return None
+
+    def report(current_seconds, total_seconds):
+        fraction = min(1.0, current_seconds / total_seconds) if total_seconds else 1.0
+        callback(
+            start_percent + (end_percent - start_percent) * fraction,
+            f"المرحلة 1: تقطيع الأنفاس والوقف العصبي "
+            f"({current_seconds:.1f} / {total_seconds:.1f} ثانية)...",
+        )
+
+    return report
+
+
 class HybridQuranAligner:
     """
     محرك المحاذاة الهجين الثلاثي:
@@ -53,7 +69,7 @@ class HybridQuranAligner:
         self.zipformer = ZipformerNeuralAligner(self.zipformer_dir)
         self.wav2vec2 = Wav2Vec2ForcedAligner(self.wav2vec2_dir_or_name)
         self.segmenter = QuranRecitationSegmenter(self.segmenter_dir_or_name)
-        print("[+] Full Hybrid Engine (Segmenter v2 + Zipformer v3 + Wav2Vec2) ready on GPU!")
+        print("[+] Full Hybrid Engine (Segmenter v2 + Zipformer v3 + Wav2Vec2) ready!")
 
     def align_recitation(
         self,
@@ -284,7 +300,8 @@ class HybridQuranAligner:
             sr=sr,
             min_silence_ms=min_silence_ms,
             min_speech_ms=min_speech_ms,
-            pad_ms=pad_ms
+            pad_ms=pad_ms,
+            progress_callback=_segmentation_progress(progress_callback, 20, 49),
         )
         print(f"[+] [Fuzzy Engine v3] Segmenter detected {len(neural_breath_intervals)} breath intervals.")
 
@@ -466,14 +483,15 @@ class HybridQuranAligner:
         # المرحلة 1: التقطيع العصبي للأنفاس والوقف عبر recitation-segmenter-v2 على GPU
         # =========================================================================
         if progress_callback:
-            progress_callback(10, "المرحلة 1: كشف وتقطيع الأنفاس والوقف العصبي عبر recitation-segmenter-v2 على GPU...")
+            progress_callback(10, "المرحلة 1: كشف وتقطيع الأنفاس والوقف العصبي عبر recitation-segmenter-v2...")
 
         neural_breath_intervals = self.segmenter.segment_audio(
             audio,
             sr=sr,
             min_silence_ms=min_silence_ms,
             min_speech_ms=min_speech_ms,
-            pad_ms=pad_ms
+            pad_ms=pad_ms,
+            progress_callback=_segmentation_progress(progress_callback, 10, 29),
         )
         print(f"[+] recitation-segmenter-v2 detected {len(neural_breath_intervals)} breath intervals (silence={min_silence_ms or self.segmenter.min_silence_duration_ms}ms, speech={min_speech_ms or self.segmenter.min_speech_duration_ms}ms).")
 
@@ -611,7 +629,7 @@ class HybridQuranAligner:
         # =========================================================================
         gc.collect()
         if progress_callback:
-            progress_callback(65, "المرحلة 4: المحاذاة المجهرية للحروف والكلمات عبر Wav2Vec2 على GPU...")
+            progress_callback(65, "المرحلة 4: المحاذاة المجهرية للحروف والكلمات عبر Wav2Vec2...")
 
         total_groups = len(raw_breath_groups)
         refined_alignments_list = [None] * num_words
@@ -700,7 +718,7 @@ class HybridQuranAligner:
 
             if progress_callback and (g_idx % 4 == 0 or g_idx == total_groups - 1):
                 pct = 65 + int((g_idx / max(1, total_groups)) * 25)
-                progress_callback(pct, f"المرحلة 4: محاذاة مقطع النَّفَس {g_idx + 1} من {total_groups} على GPU...")
+                progress_callback(pct, f"المرحلة 4: محاذاة مقطع النَّفَس {g_idx + 1} من {total_groups}...")
 
         # ملء أي كلمات متبقية إن وجدت
         for w_idx in range(num_words):

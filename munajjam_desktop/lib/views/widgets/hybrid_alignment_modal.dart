@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -169,68 +168,51 @@ class _HybridAlignmentModalState extends State<HybridAlignmentModal> {
         repetitionAttach: _repetitionAttach,
       );
 
-      // Poll progress until success
-      Timer.periodic(const Duration(milliseconds: 700), (timer) async {
-        try {
-          final status = await apiService.checkJobStatus(jobId);
+      await for (final status in apiService.watchJob(jobId)) {
+        if (!mounted) return;
 
-          if (!mounted) {
-            timer.cancel();
-            return;
-          }
+        setState(() {
+          _progress = status.progress;
+          _progressMessage = status.message;
+        });
 
+        if (status.isSuccess) {
           setState(() {
-            _progress = status.progress;
-            _progressMessage = status.message;
+            _progress = 100;
+            _isAligning = false;
           });
 
-          if (status.isSuccess) {
-            timer.cancel();
-            setState(() {
-              _progress = 100;
-              _isAligning = false;
-            });
+          final alignProvider = context.read<AlignmentProvider>();
+          alignProvider.applyAlignmentResult(
+            ayahs: status.data ?? [],
+            breaths: status.breathGroups ?? [],
+            surahId: _selectedSurahId,
+            audioPath: _selectedAudioFile!.path,
+          );
 
-            final alignProvider = context.read<AlignmentProvider>();
-            alignProvider.applyAlignmentResult(
-              ayahs: status.data ?? [],
-              breaths: status.breathGroups ?? [],
-              surahId: _selectedSurahId,
-              audioPath: _selectedAudioFile!.path,
-            );
+          await AudioService().loadAudioSource(_selectedAudioFile!.path, isLocal: true);
 
-            await AudioService().loadAudioSource(_selectedAudioFile!.path, isLocal: true);
-
-            if (mounted) {
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('اكتمل التزمين الهجين بنجاح!'),
-                  backgroundColor: AppColors.primaryEmerald,
-                ),
-              );
-            }
-          } else if (status.isError) {
-            timer.cancel();
-            setState(() {
-              _isAligning = false;
-              _errorMessage = status.message.isNotEmpty ? status.message : 'حدث خطأ أثناء المعالجة العصبية';
-            });
-          }
-        } catch (e) {
-          timer.cancel();
           if (mounted) {
-            setState(() {
-              _isAligning = false;
-              _errorMessage = 'خطأ في الاتصال بالخادم: $e';
-            });
+            Navigator.pop(context);
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('اكتمل التزمين الهجين بنجاح!'),
+                backgroundColor: AppColors.primaryEmerald,
+              ),
+            );
           }
+        } else if (status.isError) {
+          setState(() {
+            _isAligning = false;
+            _errorMessage = status.message.isNotEmpty ? status.message : 'حدث خطأ أثناء المعالجة العصبية';
+          });
         }
-      });
+      }
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _isAligning = false;
-        _errorMessage = 'فشل بدء التزمين: $e';
+        _errorMessage = 'تعذر إكمال التزمين: $e';
       });
     }
   }

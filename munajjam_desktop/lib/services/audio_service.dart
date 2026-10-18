@@ -1,26 +1,43 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math';
+
 import 'package:audioplayers/audioplayers.dart';
 import 'package:flutter/widgets.dart';
 import 'package:path/path.dart' as p;
+
 import 'waveform_extractor.dart';
 
 class AudioService {
   static final AudioService _instance = AudioService._internal();
   factory AudioService() => _instance;
-  AudioService._internal() {
+  AudioService._internal() : _player = AudioPlayer() {
     _initListeners();
   }
 
-  final AudioPlayer _player = AudioPlayer();
-  Timer? _snippetTimer;
+  @visibleForTesting
+  AudioService.forTesting(this._player) {
+    _initListeners();
+  }
 
-  final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(Duration.zero);
-  final ValueNotifier<Duration> durationNotifier = ValueNotifier<Duration>(Duration.zero);
-  final ValueNotifier<PlayerState> playerStateNotifier = ValueNotifier<PlayerState>(PlayerState.stopped);
+  final AudioPlayer _player;
+  Timer? _snippetTimer;
+  StreamSubscription<Duration>? _snippetPositionSubscription;
+  final List<StreamSubscription<dynamic>> _subscriptions = [];
+  bool _hasCompleted = false;
+
+  final ValueNotifier<Duration> positionNotifier = ValueNotifier<Duration>(
+    Duration.zero,
+  );
+  final ValueNotifier<Duration> durationNotifier = ValueNotifier<Duration>(
+    Duration.zero,
+  );
+  final ValueNotifier<PlayerState> playerStateNotifier =
+      ValueNotifier<PlayerState>(PlayerState.stopped);
   final ValueNotifier<double> playbackRateNotifier = ValueNotifier<double>(1.0);
-  final ValueNotifier<List<double>> peaksNotifier = ValueNotifier<List<double>>([]);
+  final ValueNotifier<List<double>> peaksNotifier = ValueNotifier<List<double>>(
+    [],
+  );
   final ValueNotifier<bool> isExtractingNotifier = ValueNotifier<bool>(false);
 
   AudioPlayer get player => _player;
@@ -34,22 +51,40 @@ class AudioService {
   int _seekSessionId = 0;
 
   void _initListeners() {
-    _player.onPositionChanged.listen((pos) {
-      if (_isSeeking) return;
-      // منع برامج تشغيل الصوت في ويندوز من إرجاع المؤشر إلى الصفر أو مواضع قديمة أثناء الإيقاف المؤقت
-      if (!isPlaying) return;
-      positionNotifier.value = pos;
-    });
+    _subscriptions.add(
+      _player.onPositionChanged.listen((pos) {
+        if (_isSeeking) return;
+        // منع برامج تشغيل الصوت في ويندوز من إرجاع المؤشر إلى الصفر أو مواضع قديمة أثناء الإيقاف المؤقت
+        if (!isPlaying) return;
+        positionNotifier.value = pos;
+      }),
+    );
 
-    _player.onDurationChanged.listen((dur) {
-      if (dur > Duration.zero) {
-        durationNotifier.value = dur;
-      }
-    });
+    _subscriptions.add(
+      _player.onDurationChanged.listen((dur) {
+        if (dur > Duration.zero) {
+          durationNotifier.value = dur;
+        }
+      }),
+    );
 
-    _player.onPlayerStateChanged.listen((state) {
-      playerStateNotifier.value = state;
-    });
+    _subscriptions.add(
+      _player.onPlayerStateChanged.listen((state) {
+        playerStateNotifier.value = state;
+      }),
+    );
+
+    _subscriptions.add(
+      _player.onPlayerComplete.listen((_) {
+        _cancelSnippet();
+        _hasCompleted = true;
+        ++_seekSessionId;
+        _isSeeking = false;
+        // The native player rewinds on completion. Keep the editor in sync even
+        // though regular position events are ignored while playback is stopped.
+        positionNotifier.value = Duration.zero;
+      }),
+    );
   }
 
   int _loadAudioSessionId = 0;
@@ -71,14 +106,19 @@ class AudioService {
         return source;
       }
 
-      final tempDir = Directory(p.join(Directory.systemTemp.path, 'munajjam_cache'));
+      final tempDir = Directory(
+        p.join(Directory.systemTemp.path, 'munajjam_cache'),
+      );
       if (!await tempDir.exists()) {
         await tempDir.create(recursive: true);
       }
 
       final stat = await file.stat();
-      final baseName = p.basenameWithoutExtension(source).replaceAll(RegExp(r'[^\w\.-]'), '_');
-      final cacheKey = 'norm_${baseName}_${stat.size}_${stat.modified.millisecondsSinceEpoch}.wav';
+      final baseName = p
+          .basenameWithoutExtension(source)
+          .replaceAll(RegExp(r'[^\w\.-]'), '_');
+      final cacheKey =
+          'norm_${baseName}_${stat.size}_${stat.modified.millisecondsSinceEpoch}.wav';
       final cachedWav = File(p.join(tempDir.path, cacheKey));
 
       if (await cachedWav.exists() && await cachedWav.length() > 1000) {
@@ -88,11 +128,14 @@ class AudioService {
       // تحويل فائق السرعة عبر FFmpeg إلى تدفق PCM 16-bit قياسي بدون ترحيل وبدون ضغط
       final tempTargetPath = '${cachedWav.path}.tmp.wav';
       final res = await Process.run(ffmpegPath, [
-        '-v', 'error',
+        '-v',
+        'error',
         '-y',
-        '-i', source,
+        '-i',
+        source,
         '-vn',
-        '-c:a', 'pcm_s16le',
+        '-c:a',
+        'pcm_s16le',
         tempTargetPath,
       ]);
 
@@ -122,7 +165,9 @@ class AudioService {
       try {
         final now = DateTime.now();
         await for (final entity in tempDir.list()) {
-          if (entity is File && entity.path != keepPath && entity.path.endsWith('.wav')) {
+          if (entity is File &&
+              entity.path != keepPath &&
+              entity.path.endsWith('.wav')) {
             final stat = await entity.stat();
             if (now.difference(stat.modified).inHours > 24) {
               await entity.delete();
@@ -134,12 +179,22 @@ class AudioService {
   }
 
   Future<void> loadAudioSource(String source, {bool isLocal = false}) async {
-    _snippetTimer?.cancel();
+    _cancelSnippet();
+    _hasCompleted = false;
+    ++_seekSessionId;
+    _isSeeking = false;
+    positionNotifier.value = Duration.zero;
+    durationNotifier.value = Duration.zero;
     peaksNotifier.value = [];
     isExtractingNotifier.value = true;
     final currentSession = ++_loadAudioSessionId;
 
     try {
+      // The default release mode removes AVPlayer's item at EOF on macOS;
+      // resume/seek cannot play it again. Keep it until the source changes or
+      // this service is disposed so replay and verse previews remain usable.
+      await _player.setReleaseMode(ReleaseMode.stop);
+      if (currentSession != _loadAudioSessionId) return;
       String effectiveSource = source;
       if (isLocal) {
         effectiveSource = await _ensurePlaybackWav(source);
@@ -150,12 +205,17 @@ class AudioService {
       }
 
       // استخراج حقيقي ودقيق للتموجات الصوتية من الإشارة الفيزيائية الموحدة
-      final realPeaks = await WaveformExtractor().extractPeaks(effectiveSource, isLocal: isLocal);
+      final realPeaks = await WaveformExtractor().extractPeaks(
+        effectiveSource,
+        isLocal: isLocal,
+      );
       if (currentSession == _loadAudioSessionId) {
         if (realPeaks != null && realPeaks.isNotEmpty) {
           peaksNotifier.value = realPeaks;
           if (durationNotifier.value == Duration.zero) {
-            durationNotifier.value = Duration(milliseconds: (realPeaks.length * 10));
+            durationNotifier.value = Duration(
+              milliseconds: (realPeaks.length * 10),
+            );
           }
         }
         isExtractingNotifier.value = false;
@@ -169,12 +229,17 @@ class AudioService {
   }
 
   Future<void> play() async {
-    _snippetTimer?.cancel();
+    _cancelSnippet();
+    if (_hasCompleted) {
+      _hasCompleted = false;
+      await _player.seek(Duration.zero);
+      positionNotifier.value = Duration.zero;
+    }
     await _player.resume();
   }
 
   Future<void> pause() async {
-    _snippetTimer?.cancel();
+    _cancelSnippet();
     await _player.pause();
   }
 
@@ -187,7 +252,8 @@ class AudioService {
   }
 
   Future<void> seek(double seconds) async {
-    _snippetTimer?.cancel();
+    _cancelSnippet();
+    _hasCompleted = false;
     final currentSession = ++_seekSessionId;
     final millis = (seconds * 1000).toInt();
     final targetDuration = Duration(milliseconds: millis);
@@ -196,7 +262,8 @@ class AudioService {
     _isSeeking = true;
     try {
       await _player.seek(targetDuration);
-    } catch (_) {} finally {
+    } catch (_) {
+    } finally {
       Future.delayed(const Duration(milliseconds: 250), () {
         if (_seekSessionId == currentSession) {
           _isSeeking = false;
@@ -212,9 +279,19 @@ class AudioService {
 
   int _snippetId = 0;
 
-  Future<void> playSnippet(double startSeconds, double endSeconds) async {
+  void _cancelSnippet() {
+    ++_snippetId;
     _snippetTimer?.cancel();
-    final currentId = ++_snippetId;
+    _snippetTimer = null;
+    unawaited(_snippetPositionSubscription?.cancel());
+    _snippetPositionSubscription = null;
+  }
+
+  Future<void> playSnippet(double startSeconds, double endSeconds) async {
+    _cancelSnippet();
+    _hasCompleted = false;
+    final currentId = _snippetId;
+    final seekSession = ++_seekSessionId;
 
     try {
       // 1. تحديث الموضع اللحظي فوراً لمنع أي وميض أو ظهور لموضع سابق
@@ -227,20 +304,8 @@ class AudioService {
       await _player.pause();
       if (currentId != _snippetId) return;
 
-      // 3. انتظار اكتمال الانتقال الفعلي في محرك الصوت بويندوز عبر Completer آمن
-      final completer = Completer<void>();
-      StreamSubscription? seekSub;
-      seekSub = _player.onSeekComplete.listen((_) {
-        if (!completer.isCompleted) completer.complete();
-      });
-      final fallbackTimer = Timer(const Duration(milliseconds: 180), () {
-        if (!completer.isCompleted) completer.complete();
-      });
-
+      // AudioPlayer.seek already waits for the native seek-complete event.
       await _player.seek(targetDuration);
-      await completer.future;
-      await seekSub.cancel();
-      fallbackTimer.cancel();
       _isSeeking = false;
 
       if (currentId != _snippetId) return;
@@ -250,36 +315,42 @@ class AudioService {
       if (currentId != _snippetId) return;
 
       // 5. حساب مدة المقطع بدقة متناهية مع تعويض زمن استجابة ويندوز (Platform IPC Latency)
-      final durationMs = ((endSeconds - startSeconds) * 1000 / playbackRateNotifier.value).round();
+      final durationMs =
+          ((endSeconds - startSeconds) * 1000 / playbackRateNotifier.value)
+              .round();
       // إرسال أمر الإيقاف قبل نهاية المقطع بـ 20ms لتعويض تأخر وصول أمر Pause إلى محرك الصوت بويندوز
       // مما يجعل الصوت يتوقف فيزيائياً من السماعات عند لحظة endSeconds بدقة تامة دون أي نزف للكلمة التالية
       final stopDelayMs = max(20, durationMs - 20);
 
-      StreamSubscription? posSub;
-      posSub = _player.onPositionChanged.listen((pos) {
+      _snippetPositionSubscription = _player.onPositionChanged.listen((pos) {
         if (pos.inMilliseconds >= (endSeconds * 1000) - 15) {
           if (currentId == _snippetId) {
-            _player.pause();
-            posSub?.cancel();
+            unawaited(pause());
           }
         }
       });
 
       _snippetTimer = Timer(Duration(milliseconds: stopDelayMs), () async {
-        posSub?.cancel();
         if (currentId == _snippetId) {
           await pause();
         }
       });
     } catch (e) {
       debugPrint('Error playing snippet: $e');
+    } finally {
+      if (seekSession == _seekSessionId) {
+        _isSeeking = false;
+      }
     }
   }
 
-
-
-  void dispose() {
-    _snippetTimer?.cancel();
-    _player.dispose();
+  Future<void> dispose() async {
+    _cancelSnippet();
+    ++_loadAudioSessionId;
+    ++_seekSessionId;
+    for (final subscription in _subscriptions) {
+      await subscription.cancel();
+    }
+    await _player.dispose();
   }
 }

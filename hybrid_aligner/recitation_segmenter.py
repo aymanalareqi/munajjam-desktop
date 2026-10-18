@@ -101,7 +101,8 @@ class QuranRecitationSegmenter:
         sr: int = 16000,
         min_silence_ms: Optional[int] = None,
         min_speech_ms: Optional[int] = None,
-        pad_ms: Optional[int] = None
+        pad_ms: Optional[int] = None,
+        progress_callback: Optional[Any] = None
     ) -> List[Dict[str, float]]:
         """
         تقطيع التسجيل الصوتي واستخراج فترات النَّفَس الصوتي الحقيقي بالثواني
@@ -123,10 +124,15 @@ class QuranRecitationSegmenter:
         pad_dur = pad_ms if pad_ms is not None else self.pad_duration_ms
 
         if self.is_onnx and self.onnx_session is not None:
-            return self._segment_onnx_gpu(audio, sr, min_silence, min_speech, pad_dur, total_dur)
+            return self._segment_onnx_gpu(audio, sr, min_silence, min_speech, pad_dur, total_dur, progress_callback)
 
         # PyTorch fallback
-        return self._segment_pytorch(audio, sr, min_silence, min_speech, pad_dur, total_dur)
+        if progress_callback:
+            progress_callback(0.0, total_dur)
+        result = self._segment_pytorch(audio, sr, min_silence, min_speech, pad_dur, total_dur)
+        if progress_callback:
+            progress_callback(total_dur, total_dur)
+        return result
 
     def _segment_onnx_gpu(
         self,
@@ -135,7 +141,8 @@ class QuranRecitationSegmenter:
         min_silence_ms: int,
         min_speech_ms: int,
         pad_ms: int,
-        total_dur: float
+        total_dur: float,
+        progress_callback: Optional[Any] = None
     ) -> List[Dict[str, float]]:
         """
         معالجة فائقة السرعة على كرت الشاشة VRAM عبر ONNX DirectML
@@ -146,6 +153,8 @@ class QuranRecitationSegmenter:
 
         expected_total_frames = int(np.ceil(len(audio) / 320.0))
         all_preds = np.zeros(expected_total_frames, dtype=np.int32)
+        if progress_callback:
+            progress_callback(0.0, total_dur)
         
         for start_sample in range(0, len(audio), chunk_samples):
             end_sample = min(len(audio), start_sample + chunk_samples)
@@ -184,6 +193,8 @@ class QuranRecitationSegmenter:
                 all_preds[start_frame:expected_total_frames] = preds[:expected_total_frames - start_frame]
             else:
                 all_preds[start_frame:end_frame] = preds
+            if progress_callback:
+                progress_callback(end_sample / float(sr), total_dur)
 
         if len(all_preds) == 0:
             return [{"start": 0.0, "end": round(total_dur, 3), "duration": round(total_dur, 3)}]

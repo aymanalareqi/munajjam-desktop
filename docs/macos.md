@@ -50,6 +50,18 @@ started server is left running. Batch alignment prevents idle system sleep using
 `caffeinate`; its assertion ends on cancellation, completion, or app exit.
 Automatic computer shutdown is available only on Windows.
 
+The app-managed server writes Python and native diagnostics directly to its log
+file so Flutter hot restarts cannot disconnect its output pipes. After updating
+the backend, fully stop and relaunch the app to replace the running server.
+Neural segmentation reports progress after each 20-second audio chunk, including
+how much of the recording has been processed.
+
+If a debug session reports `Class ... is implemented in both` for the same
+`objective_c.framework` path after a hot restart, stop the debug session fully
+and run `flutter run -d macos` again. A hot restart can leave earlier native
+library copies loaded in the process, especially after another build has
+replaced the framework. Do not delete the framework from the app bundle.
+
 ## Build a standalone app
 
 ```sh
@@ -122,8 +134,13 @@ cd munajjam_desktop
 flutter analyze
 flutter test
 flutter test test/test_surah_detector.dart
+flutter test integration_test/audio_playback_test.dart -d macos
 flutter build macos --release
 ```
+
+The audio integration tests use the native macOS player with generated, muted
+audio to check replay after completion, seeking, verse snippets, and switching
+back to continuous playback.
 
 A successful build or mocked provider test does not establish inference accuracy.
 A release should also be checked by launching from Finder, importing and playing

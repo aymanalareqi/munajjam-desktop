@@ -298,35 +298,23 @@ class BatchAlignmentService extends ChangeNotifier {
       riwaya: _riwaya,
     );
 
-    // متابعة تقدم المهمة حتى الاكتمال
-    final completer = Completer<AlignmentJobStatus>();
-    Timer.periodic(const Duration(milliseconds: 750), (timer) async {
-      if (!_isRunning) {
-        timer.cancel();
-        if (!completer.isCompleted) completer.completeError('تم إلغاء المهمة');
-        return;
+    AlignmentJobStatus? finalStatus;
+    await for (final status in apiService.watchJob(
+      jobId,
+      pollInterval: const Duration(milliseconds: 750),
+    )) {
+      if (!_isRunning) throw Exception('تم إلغاء المهمة');
+      item.progress = status.progress;
+      item.progressMessage = status.message;
+      notifyListeners();
+
+      if (status.isError) throw Exception(status.message);
+      if (status.isSuccess) {
+        finalStatus = status;
+        break;
       }
-
-      try {
-        final status = await apiService.checkJobStatus(jobId);
-        item.progress = status.progress;
-        item.progressMessage = status.message;
-        notifyListeners();
-
-        if (status.isSuccess) {
-          timer.cancel();
-          if (!completer.isCompleted) completer.complete(status);
-        } else if (status.isError) {
-          timer.cancel();
-          if (!completer.isCompleted) completer.completeError(status.message);
-        }
-      } catch (e) {
-        timer.cancel();
-        if (!completer.isCompleted) completer.completeError('خطأ في الاتصال: $e');
-      }
-    });
-
-    final finalStatus = await completer.future;
+    }
+    if (finalStatus == null) throw Exception('لم تكتمل مهمة التزمين');
 
     // دمج نصوص الآيات وحفظ ملف الـ JSON
     final quranText = await QuranDataService().getSurahAyahs(item.surahId, riwaya: _riwaya);
